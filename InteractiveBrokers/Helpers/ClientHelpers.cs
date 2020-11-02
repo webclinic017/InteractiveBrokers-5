@@ -30,7 +30,10 @@ namespace InteractiveBrokers.Helpers
 		private static readonly DateTime s_epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 		private static readonly ConcurrentDictionary<string, (string, string)> s_accessTokens = new ConcurrentDictionary<string, (string, string)>();
 
-		public static int GetTimestamp()
+        public static AsymmetricCipherKeyPair SignaturePemKeyPair { get; private set; }
+        public static AsymmetricCipherKeyPair EncryptionPemKeyPair { get; private set; }
+
+        public static int GetTimestamp()
 		{
 			var epochUtc = s_epoch;
 			return (int)((DateTime.UtcNow - epochUtc).TotalSeconds);
@@ -152,7 +155,7 @@ namespace InteractiveBrokers.Helpers
 		{
 
 			using var reader = File.OpenText(@"private_signature.pem");
-			var keyPair = (AsymmetricCipherKeyPair)new PemReader(reader).ReadObject();
+			SignaturePemKeyPair ??= (AsymmetricCipherKeyPair)new PemReader(reader).ReadObject();
 			var sigString = string.Join(
 			"&",
 			data
@@ -165,10 +168,10 @@ namespace InteractiveBrokers.Helpers
 			{
 				var secretBytes = Convert.FromBase64String(secret);
 				using var encryptionPem = File.OpenText(@"private_encryption.pem");
-				var encryptionKeyPair = (AsymmetricCipherKeyPair)new PemReader(encryptionPem).ReadObject();
+				EncryptionPemKeyPair ??= (AsymmetricCipherKeyPair)new PemReader(encryptionPem).ReadObject();
 				IAsymmetricBlockCipher e = new RsaEngine();
 				e = new Pkcs1Encoding(e);
-				e.Init(false, encryptionKeyPair.Private);
+				e.Init(false, EncryptionPemKeyPair.Private);
 				var result = e.ProcessBlock(secretBytes, 0, secretBytes.Length);
 				superSecretString = BitConverter.ToString(result).Replace("-", "").ToLower();
 			}
@@ -190,7 +193,7 @@ namespace InteractiveBrokers.Helpers
 			{
 				var sha256 = new Sha256Digest();
 				var rsa = new RsaDigestSigner(sha256);
-				rsa.Init(true, keyPair.Private);
+				rsa.Init(true, SignaturePemKeyPair.Private);
 				rsa.BlockUpdate(bytes, 0, bytes.Length);
 				return Convert.ToBase64String(rsa.GenerateSignature());
 			}
